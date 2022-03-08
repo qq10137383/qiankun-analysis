@@ -34,6 +34,7 @@ export default function patch(global: WindowProxy) {
     return rawRemoveEventListener.call(window, type, listener, options);
   };
 
+  // 沙盒卸载时，事件监听会被全部卸载，下次mount时需要重新注册，返回的rebuild访问为noop
   return function free() {
     listenerMap.forEach((listeners, type) =>
       [...listeners].forEach((listener) => global.removeEventListener(type, listener)),

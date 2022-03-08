@@ -45,9 +45,15 @@ export function createSandboxContainer(
     sandbox = new SnapshotSandbox(appName);
   }
 
+  // 启动沙盒时拦截document.createElment方法，拦截script、link、style元素的创建
+  // 拦截head、body的appendChild、insertBefore、removeChild等方法
+  // 目的是使微应用动态创建的script、link、style应该添加到挂载dom上而不是在主应用中，
+  // 卸载应用的时候挂载dom会删除，这些脚本和样式也会一起删除
+  // bootstrapp阶段的状态在应用卸载时会被删除，重新mount的时候会被重建
   // some side effect could be be invoked while bootstrapping, such as dynamic stylesheet injection with style-loader, especially during the development phase
   const bootstrappingFreers = patchAtBootstrapping(appName, elementGetter, sandbox, scopedCSS, excludeAssetFilter);
   // mounting freers are one-off and should be re-init at every mounting time
+  // mount阶段的状态在应用卸载时会被删除，但是重新mount不会被重建，需要重新初始化
   let mountingFreers: Freer[] = [];
 
   let sideEffectsRebuilders: Rebuilder[] = [];
@@ -66,16 +72,20 @@ export function createSandboxContainer(
       /* ------------------------------------------ 1. 启动/恢复 沙箱------------------------------------------ */
       sandbox.active();
 
+      // 需要还原的Bootstrap阶段的状态
       const sideEffectsRebuildersAtBootstrapping = sideEffectsRebuilders.slice(0, bootstrappingFreers.length);
+      // 需要还原的Mount阶段的状态
       const sideEffectsRebuildersAtMounting = sideEffectsRebuilders.slice(bootstrappingFreers.length);
 
       // must rebuild the side effects which added at bootstrapping firstly to recovery to nature state
+      // 还原Bootstrap阶段的状态
       if (sideEffectsRebuildersAtBootstrapping.length) {
         sideEffectsRebuildersAtBootstrapping.forEach((rebuild) => rebuild());
       }
 
       /* ------------------------------------------ 2. 开启全局变量补丁 ------------------------------------------*/
       // render 沙箱启动时开始劫持各类全局监听，尽量不要在应用初始化阶段有 事件监听/定时器 等副作用
+      // mount阶段拦截定时器、事件监听
       mountingFreers = patchAtMounting(appName, elementGetter, sandbox, scopedCSS, excludeAssetFilter);
 
       /* ------------------------------------------ 3. 重置一些初始化时的副作用 ------------------------------------------*/
@@ -94,8 +104,9 @@ export function createSandboxContainer(
     async unmount() {
       // record the rebuilders of window side effects (event listeners or timers)
       // note that the frees of mounting phase are one-off as it will be re-init at next mounting
+      // free方法会恢复状态，返回的rebuild方法会在下次mount的时候重建状态
       sideEffectsRebuilders = [...bootstrappingFreers, ...mountingFreers].map((free) => free());
-
+      
       sandbox.inactive();
     },
   };
